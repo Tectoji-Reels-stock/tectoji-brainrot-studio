@@ -1,0 +1,33 @@
+name: Stage 1 - Make sample Short
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Seed number (change for a different video)"
+        default: "1"
+      style:
+        description: "Style: random, brainrot, broadcast or horror"
+        default: "random"
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng fonts-noto-color-emoji fonts-dejavu-core
+      - name: Install Python packages
+        run: pip install pillow numpy
+      - name: Render
+        run: python tectoji.py --seed ${{ github.event.inputs.seed }} --style ${{ github.event.inputs.style }} --out out
+      - name: Check output
+        run: ffprobe -v error -show_entries format=duration -of csv=p=0 out/short.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sample-short
+          path: out/
