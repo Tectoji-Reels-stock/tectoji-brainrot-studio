@@ -274,6 +274,8 @@ def vignette():
 def scanlines():
     arr = np.zeros((H, W, 4), np.uint8); arr[::4, :, 3] = 70
     return Image.fromarray(arr, "RGBA")
+
+
   def render_frames(scenes, bounds, total, ff_stdin, rng, style, ctx):
     bright = 0.55 if style == "horror" else 1.0
     sprites = {}
