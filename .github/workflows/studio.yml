@@ -1,0 +1,47 @@
+name: Make Short from topic
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Topic (e.g. haunted school horror story part 1)"
+        required: true
+      style:
+        description: "auto, horror, broadcast or brainrot"
+        default: "auto"
+permissions:
+  contents: write
+concurrency:
+  group: tectoji-state
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng fonts-noto-color-emoji fonts-dejavu-core
+      - name: Install Python packages
+        run: pip install pillow numpy
+      - name: Make the Short
+        env:
+          TOPIC: ${{ github.event.inputs.topic }}
+          STYLE: ${{ github.event.inputs.style }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python studio.py --topic "$TOPIC" --style "$STYLE" --seed ${{ github.run_number }} --out out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: short
+          path: out/
+      - name: Save state
+        run: |
+          git config user.name "tectoji-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add state
+          git diff --cached --quiet || git commit -m "state update ${{ github.run_number }}"
+          git pull --rebase || true
+          git push
