@@ -401,6 +401,7 @@ def make_meta(ctx, scenes, chars, style):
         desc = (f"{hook}\n\n{note} Script, animation and voice are generated with automated tools.\n\n"
             + " ".join(tags))
     return dict(title=title, description=desc, tags=[t[1:] for t in tags], style=style,
+                                script_hash=hashlib.sha1(" ".join(s["text"] for s in scenes).encode()).hexdigest())
 
 
 # ---------------------------------------------------------------- main
