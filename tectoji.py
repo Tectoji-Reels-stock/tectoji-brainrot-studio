@@ -276,7 +276,7 @@ def scanlines():
     return Image.fromarray(arr, "RGBA")
 
 
-  def render_frames(scenes, bounds, total, ff_stdin, rng, style, ctx):
+def render_frames(scenes, bounds, total, ff_stdin, rng, style, ctx):
     bright = 0.55 if style == "horror" else 1.0
     sprites = {}
     for s in scenes:
