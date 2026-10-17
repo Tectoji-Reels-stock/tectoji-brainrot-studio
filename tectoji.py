@@ -65,13 +65,24 @@ HR_BEATS = ["{A} did not listen.", "It was in {P} again.", "Every night, it move
 HR_TWIST = ["When the lights returned, {A} was {S}.", "Now {A} only whispers about the {O}."]
 HR_OUT = ["And now it is looking at you.", "Do not turn around.", "Check behind you. Slowly."]
 
+AN_HOOKS = ["This is not a test.", "Attention. Stay where you are.", "This is an emergency broadcast.",
+            "Do not change the channel.", "Warning. The {O} has entered your area."]
+AN_BEATS = ["Lock all your doors now.", "Close every window. Close the curtains.",
+            "Do not look at the television.", "Find a quiet place to hide.",
+            "If someone knocks, do not answer.", "Turn off your phone. It can hear you.",
+            "Do not look outside. It is already there.", "It copies the voice of someone you know.",
+            "Do not count the people in your house.", "Turn off all the lights."]
+AN_TWIST = ["This broadcast is coming from inside your house.", "This message is playing in your room."]
+AN_OUT = ["Do not turn around.", "It is watching you too.", "End of broadcast. Sleep well."]
+
 PAL = {"brainrot": [((255, 80, 120), (80, 40, 200)), ((255, 200, 0), (255, 60, 0)),
                     ((0, 220, 180), (20, 40, 160)), ((190, 60, 255), (255, 80, 160)),
                     ((60, 200, 60), (0, 90, 120)), ((255, 120, 0), (200, 0, 100))],
        "broadcast": [((120, 0, 0), (10, 0, 0)), ((0, 0, 70), (150, 0, 0)), ((90, 20, 0), (0, 0, 0))],
-       "horror": [((10, 0, 28), (0, 40, 34)), ((30, 0, 0), (0, 0, 24)), ((0, 24, 12), (14, 0, 34))]}
+       "horror": [((10, 0, 28), (0, 40, 34)), ((30, 0, 0), (0, 0, 24)), ((0, 24, 12), (14, 0, 34))],
+       "analog": [((6, 6, 6), (24, 0, 0))]}
 MOTIONS = {"brainrot": ["bounce", "spin", "zoom", "shake", "orbit"],
-           "broadcast": ["shake", "bounce", "zoom"], "horror": ["creep", "creep", "shake"]}
+           "broadcast": ["shake", "bounce", "zoom"], "horror": ["creep", "creep", "shake"], "analog": ["creep"]}
 
 
 def make_script(rng, style="brainrot"):
@@ -81,6 +92,8 @@ def make_script(rng, style="brainrot"):
                F=rng.choice(FIXES), R=rng.choice(RELS))
     if style == "broadcast":
         beats = [rng.choice(BC_HOOKS)] + rng.sample(BC_BEATS, 4) + [rng.choice(BC_TWIST), rng.choice(BC_OUT)]
+    elif style == "analog":
+        beats = [rng.choice(AN_HOOKS)] + rng.sample(AN_BEATS, 4) + [rng.choice(AN_TWIST), rng.choice(AN_OUT)]
     elif style == "horror":
         beats = [rng.choice(HR_HOOKS)] + rng.sample(HR_BEATS, 4) + [rng.choice(HR_TWIST), rng.choice(HR_OUT)]
     else:
@@ -89,7 +102,9 @@ def make_script(rng, style="brainrot"):
         beats += [rng.choice(TWISTS), rng.choice(PUNCH), rng.choice(OUTROS)]
     scenes = []
     for i, b in enumerate(beats):
-        if style == "horror":
+        if style == "analog":
+            sprites = [O[1]]
+        elif style == "horror":
             sprites = [O[1]] if i % 2 == 0 else [A[1]]
             if i == len(beats) - 1:
                 sprites = [O[1]]
@@ -126,7 +141,9 @@ def read_wav(path):
         if w.getnchannels() > 1:
             a = a.reshape(-1, w.getnchannels()).mean(axis=1)
     return sr, a
-  # ---------------------------------------------------------------- audio
+
+
+# ---------------------------------------------------------------- audio
 def synth_music(dur, rng):
     t = np.arange(int(dur * SR)) / SR
     out = np.zeros_like(t)
@@ -186,6 +203,29 @@ def broadcast_music(dur, rng):
     return out
 
 
+def analog_music(dur, rng):
+    t = np.arange(int(dur * SR)) / SR
+    out = 0.16 * np.sin(2 * np.pi * 60 * t) + 0.07 * np.sin(2 * np.pi * 120 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 0.3 * t))
+    nz = np.random.default_rng(3).random(len(t)) - 0.5
+    k = 8
+    nz = np.convolve(nz, np.ones(k) / k, mode="same")
+    out += nz * 0.10
+    vib = np.sin(2 * np.pi * 330 * t + 4 * np.sin(2 * np.pi * 5 * t))
+    out += vib * 0.025 * (np.sin(2 * np.pi * 0.12 * t) > 0.4)
+    for j in range(int(dur / 3.2)):
+        st = int((1.0 + j * 3.2) * SR); ln = int(0.15 * SR)
+        if st + ln < len(out):
+            out[st:st + ln] += np.sin(2 * np.pi * 760 * np.arange(ln) / SR) * 0.09
+    r = int(min(5, dur) * SR); u = np.arange(r) / r
+    out[-r:] += np.sin(2 * np.pi * (150 + 750 * u) * (np.arange(r) / SR)) * u * 0.10
+    return out
+
+
+def radio_fx(a):
+    a = np.round(np.tanh(a * 2.0) * 20) / 20
+    return a + (np.random.default_rng(5).random(len(a)) - 0.5) * 0.02
+
+
 def add_sfx(buf, at, kind):
     s = int(at * SR)
     if kind == "pop":
@@ -197,6 +237,9 @@ def add_sfx(buf, at, kind):
     elif kind == "thud":
         ln = int(0.35 * SR); tt = np.arange(ln) / SR
         x = np.sin(2 * np.pi * 70 * tt) * np.exp(-tt * 9) * 0.5
+    elif kind == "static":
+        ln = int(0.25 * SR); tt = np.arange(ln) / SR
+        x = (np.random.default_rng(int(at * 100)).random(ln) - 0.5) * np.exp(-tt * 9) * 0.7
     elif kind == "scare":
         ln = int(0.8 * SR); tt = np.arange(ln) / SR
         x = ((np.random.default_rng(1).random(ln) - 0.5) * 1.2 + np.sin(2 * np.pi * 150 * tt)) * np.exp(-tt * 3) * 0.9
@@ -276,7 +319,147 @@ def scanlines():
     return Image.fromarray(arr, "RGBA")
 
 
+ICON_WORDS = [("door", "door"), ("knock", "door"), ("window", "window"), ("curtain", "window"),
+              ("outside", "window"), ("television", "tv"), ("tv", "tv"), ("channel", "tv"),
+              ("broadcast", "tv"), ("hide", "bed"), ("sleep", "bed"), ("quiet", "bed"),
+              ("phone", "phone"), ("hear", "phone"), ("look", "eye"), ("watch", "eye"),
+              ("turn around", "eye"), ("house", "house"), ("home", "house"), ("room", "house"),
+              ("light", "lamp"), ("dark", "lamp")]
+
+
+ICON_NAMES = ["door", "window", "tv", "bed", "phone", "eye", "house", "person", "lamp"]
+
+
+def icon_for(text):
+    t = text.lower()
+    for k, v in ICON_WORDS:
+        if k in t:
+            return v
+    return "person"
+
+
+def draw_person(d, cx, top, h, col):
+    r = h * 0.11
+    d.ellipse((cx - r, top, cx + r, top + 2 * r), fill=col)
+    d.rounded_rectangle((cx - h * 0.16, top + 2.3 * r, cx + h * 0.16, top + h * 0.62), int(h * 0.06), fill=col)
+    d.rectangle((cx - h * 0.14, top + h * 0.58, cx - h * 0.02, top + h), fill=col)
+    d.rectangle((cx + h * 0.02, top + h * 0.58, cx + h * 0.14, top + h), fill=col)
+    d.rectangle((cx - h * 0.26, top + 2.4 * r, cx - h * 0.19, top + h * 0.55), fill=col)
+    d.rectangle((cx + h * 0.19, top + 2.4 * r, cx + h * 0.26, top + h * 0.55), fill=col)
+
+
+def draw_icon(name, S=520):
+    im = Image.new("RGBA", (S, S), (0, 0, 0, 0)); d = ImageDraw.Draw(im)
+    g = (190, 190, 190, 255); k = (0, 0, 0, 255); lw = 14
+    if name == "door":
+        d.rectangle((150, 40, 370, 480), outline=g, width=lw)
+        d.polygon([(150, 40), (250, 70), (250, 450), (150, 480)], fill=g)
+        d.ellipse((222, 250, 238, 266), fill=k)
+    elif name == "window":
+        d.rectangle((110, 80, 410, 440), outline=g, width=lw)
+        d.line((260, 80, 260, 440), fill=g, width=lw); d.line((110, 260, 410, 260), fill=g, width=lw)
+    elif name == "tv":
+        d.line((200, 60, 260, 130), fill=g, width=10); d.line((330, 50, 270, 130), fill=g, width=10)
+        d.rounded_rectangle((70, 130, 450, 420), 28, fill=g)
+        d.rounded_rectangle((100, 160, 380, 390), 18, fill=(15, 15, 15, 255))
+        d.ellipse((400, 200, 430, 230), fill=k); d.ellipse((400, 260, 430, 290), fill=k)
+    elif name == "bed":
+        d.rectangle((70, 300, 450, 360), fill=g); d.rectangle((70, 200, 110, 420), fill=g)
+        d.rectangle((410, 260, 450, 420), fill=g); d.rounded_rectangle((120, 230, 220, 300), 18, fill=g)
+    elif name == "phone":
+        d.rounded_rectangle((170, 60, 350, 460), 30, outline=g, width=lw)
+        d.ellipse((245, 410, 275, 440), outline=g, width=8)
+    elif name == "eye":
+        d.ellipse((60, 190, 460, 330), outline=g, width=lw)
+        d.ellipse((220, 200, 300, 320), fill=(150, 0, 0, 255)); d.ellipse((248, 238, 272, 282), fill=k)
+    elif name == "house":
+        d.polygon([(60, 230), (260, 70), (460, 230)], outline=g, width=lw)
+        d.rectangle((110, 230, 410, 440), outline=g, width=lw); d.rectangle((230, 330, 290, 440), fill=g)
+    elif name == "lamp":
+        d.polygon([(190, 120), (330, 120), (380, 260), (140, 260)], fill=g)
+        d.rectangle((250, 260, 270, 420), fill=g); d.rectangle((190, 420, 330, 440), fill=g)
+    else:
+        draw_person(d, S // 2, 60, 400, g)
+    return im
+
+
+def draw_entity():
+    im = Image.new("RGBA", (260, 900), (0, 0, 0, 0)); d = ImageDraw.Draw(im); c = (135, 0, 0, 255)
+    d.ellipse((100, 0, 160, 80), fill=c)
+    d.rounded_rectangle((105, 85, 155, 560), 20, fill=c)
+    d.rectangle((85, 100, 100, 640), fill=c); d.rectangle((160, 100, 175, 640), fill=c)
+    d.rectangle((108, 540, 128, 900), fill=c); d.rectangle((132, 540, 152, 900), fill=c)
+    return im
+
+
+def render_analog(scenes, bounds, total, ff, rng, ctx):
+    mono = ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"] + FONT_BOLD
+    f_logo, f_sub, f_cap, f_big = (find_font(mono, z) for z in (170, 36, 58, 110))
+    tmp = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    icons, ents = {}, []
+    ent = draw_entity(); last = max(1, len(scenes) - 1)
+    for i, s in enumerate(scenes):
+        s["icon"] = s.get("icon") or icon_for(s["text"])
+        if s["icon"] not in icons:
+            icons[s["icon"]] = draw_icon(s["icon"])
+        prog = i / last; es = 0.35 + 0.95 * prog
+        e = ent.resize((int(ent.width * es), int(ent.height * es)), Image.BICUBIC)
+        al = e.getchannel("A").point(lambda v, p=prog: int(v * (0.25 + 0.75 * p)))
+        e.putalpha(al); ents.append((e, es))
+    scan, vig = scanlines(), vignette()
+    nprng = np.random.default_rng(7)
+    nf = int(total * FPS); si = 0
+    for f in range(nf):
+        t = f / FPS
+        while si < len(scenes) - 1 and t >= bounds[si + 1]:
+            si += 1
+        sc = scenes[si]; lt = t - bounds[si]; prog = si / last
+        img = Image.new("RGBA", (W, H), (6, 6, 6, 255)); d = ImageDraw.Draw(img)
+        flick = 1.0 if (int(t * 10) * 7919) % 13 else 0.45
+        d.text((W / 2, 230), "TAS", font=f_logo, fill=(int(200 * flick), 0, 0, 255), anchor="mm")
+        d.text((W / 2, 345), "TECTOJI ALERT SYSTEM", font=f_sub, fill=(170, 170, 170, 255), anchor="mm")
+        pop = min(1.0, lt / 0.2)
+        paste_center(img, icons[sc["icon"]], W * 0.40, H * 0.43, 1.25 * max(0.2, pop), 0)
+        e, es = ents[si]
+        jit = math.sin(t * 31) * 4 if prog > 0.6 else 0
+        paste_center(img, e, W * 0.82 + jit, H * 0.66 - e.height / 2, 1.0, 0)
+        words = sc["text"].upper().split()
+        tot_c = sum(len(w) + 1 for w in words); acc = 0; cur = 0
+        for i, w in enumerate(words):
+            if lt >= (acc / tot_c) * sc["_vdur"]:
+                cur = i
+            acc += len(w) + 1
+        d = ImageDraw.Draw(img)
+        lines = wrap_words(words, f_cap, W - 160, tmp); y = int(H * 0.72); idx = 0
+        for ln in lines:
+            lw = tmp.textlength(" ".join(ln), font=f_cap); x = (W - lw) / 2
+            for w in ln:
+                d.text((x, y), w, font=f_cap, fill=(230, 30, 30, 255) if idx == cur else (225, 225, 225, 255))
+                x += tmp.textlength(w + " ", font=f_cap); idx += 1
+            y += 82
+        d.text((W / 2, H - 80), "FICTIONAL  *  NOT A REAL ALERT", font=f_sub, fill=(120, 120, 120, 255), anchor="mm")
+        d.rectangle((0, 0, int(W * t / total), 8), fill=(136, 0, 0, 255))
+        if lt < 0.18 or (int(t * 7) * 104729) % 29 == 0:
+            arr = np.array(img.convert("RGB"))
+            for _ in range(6):
+                y0 = int(nprng.integers(0, H - 80)); hh = int(nprng.integers(10, 70))
+                arr[y0:y0 + hh] = np.roll(arr[y0:y0 + hh], int(nprng.integers(-80, 80)), axis=1)
+            img = Image.fromarray(arr).convert("RGBA")
+        noise = Image.fromarray(nprng.integers(0, 70, (H // 4, W // 4), dtype=np.uint8), "L").resize((W, H)).convert("RGBA")
+        img = Image.blend(img, noise, 0.10)
+        img.alpha_composite(scan); img.alpha_composite(vig)
+        if si == len(scenes) - 1 and lt < 0.3:
+            img = Image.blend(img, Image.new("RGBA", (W, H), (150, 0, 0, 255)), 0.5)
+        if t > total - 0.9:
+            blk = Image.blend(Image.new("RGBA", (W, H), (0, 0, 0, 255)), noise, 0.7)
+            ImageDraw.Draw(blk).text((W / 2, H / 2), "SIGNAL LOST", font=f_big, fill=(190, 0, 0, 255), anchor="mm")
+            img = blk
+        ff.write(img.convert("RGB").tobytes())
+
+
 def render_frames(scenes, bounds, total, ff_stdin, rng, style, ctx):
+    if style == "analog":
+        return render_analog(scenes, bounds, total, ff_stdin, rng, ctx)
     bright = 0.55 if style == "horror" else 1.0
     sprites = {}
     for s in scenes:
@@ -376,7 +559,9 @@ def render_frames(scenes, bounds, total, ff_stdin, rng, style, ctx):
         d.text((W / 2, H - 80), "TECTOJI", font=small, fill=(255, 255, 255, 150),
                anchor="mm", stroke_width=3, stroke_fill=(0, 0, 0))
         ff_stdin.write(img.convert("RGB").tobytes())
-      # ---------------------------------------------------------------- metadata
+
+
+# ---------------------------------------------------------------- metadata
 def make_meta(ctx, scenes, chars, style):
     A, B, O = chars
     hook = scenes[0]["text"]
@@ -384,6 +569,10 @@ def make_meta(ctx, scenes, chars, style):
         title = f"BREAKING: {O[0]} spotted in {ctx['P']} {O[1]}"
         tags = ["#shorts", "#breakingnews", "#absurd", "#funny", "#tectoji", "#comedy"]
         note = "A fictional comedy broadcast. None of this is real news."
+    elif style == "analog":
+        title = f"EMERGENCY BROADCAST: {hook[:50]}"
+        tags = ["#shorts", "#analoghorror", "#emergencybroadcast", "#creepy", "#horror", "#tectoji"]
+        note = "An original fictional analog horror broadcast. Not a real emergency alert."
     elif style == "horror":
         title = f"Do not look at the {O[0]} {O[1]}"
         tags = ["#shorts", "#horror", "#creepy", "#scary", "#tectoji", "#spooky"]
@@ -403,13 +592,15 @@ def make_meta(ctx, scenes, chars, style):
 # ---------------------------------------------------------------- main
 def build(seed, out, style):
     if style == "random":
-        style = ["brainrot", "broadcast", "horror"][seed % 3]
+        style = ["brainrot", "broadcast", "horror", "analog"][seed % 4]
     os.makedirs(out, exist_ok=True)
     tmpd = os.path.join(out, "tmp"); os.makedirs(tmpd, exist_ok=True)
     for attempt in range(25):
         rng = random.Random(seed * 1000 + attempt)
         ctx, scenes, chars = make_script(rng, style)
-        if style == "horror":
+        if style == "analog":
+            voice = rng.choice(["en-us+m7", "en-us+m2"]); speed, pitch = rng.randint(120, 135), rng.randint(5, 20)
+        elif style == "horror":
             voice = rng.choice(["en-us+whisper", "en-us+m2"]); speed, pitch = rng.randint(125, 140), rng.randint(10, 30)
         elif style == "broadcast":
             voice = rng.choice(["en-us+m7", "en-gb+m4"]); speed, pitch = rng.randint(150, 165), rng.randint(20, 40)
@@ -419,12 +610,12 @@ def build(seed, out, style):
         real = True
         for i, s in enumerate(scenes):
             p = os.path.join(tmpd, f"v{i}.wav")
-            real = tts(s["text"], p, voice, speed, pitch)
+            real = tts(s["text"].lower() if style == "analog" else s["text"], p, voice, speed, pitch)
             sr, a = read_wav(p); s["_wav"] = a; s["_sr"] = sr
             s["_vdur"] = len(a) / sr if len(a) else 1.5
         starts, t = [], 0.0
         for s in scenes:
-            starts.append(t); t += max(s["_vdur"] + 0.45, 1.6)
+            starts.append(t); t += max(s["_vdur"] + 0.45, 2.4 if style == "analog" else 1.6)
         total = t + 0.6
         if MIN_S <= total <= MAX_S:
             break
@@ -436,15 +627,17 @@ def build(seed, out, style):
     print(f"style={style} seed={seed} attempt={attempt} voice={voice} real_tts={real} duration={total:.1f}s")
 
     # audio mix
-    mus = {"horror": horror_music, "broadcast": broadcast_music}.get(style, synth_music)
+    mus = {"horror": horror_music, "broadcast": broadcast_music, "analog": analog_music}.get(style, synth_music)
     buf = mus(total, rng) * 0.55
-    sfx = {"horror": "thud", "broadcast": "beep"}.get(style, "pop")
-    last = "scare" if style == "horror" else "boom"
+    sfx = {"horror": "thud", "broadcast": "beep", "analog": "static"}.get(style, "pop")
+    last = "scare" if style in ("horror", "analog") else "boom"
     n = len(buf)
     for i, s in enumerate(scenes):
         add_sfx(buf, starts[i], sfx)
         a = np.interp(np.arange(int(len(s["_wav"]) * SR / s["_sr"])) / SR * s["_sr"],
                       np.arange(len(s["_wav"])), s["_wav"]) if len(s["_wav"]) else np.zeros(1)
+        if style == "analog":
+            a = radio_fx(a)
         st = int((starts[i] + 0.1) * SR); e = min(n, st + len(a))
         if e > st:
             buf[st:e] += a[:e - st] * 1.0
@@ -479,6 +672,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", default="out")
-    ap.add_argument("--style", default="random", choices=["random", "brainrot", "broadcast", "horror"])
+    ap.add_argument("--style", default="random", choices=["random", "brainrot", "broadcast", "horror", "analog"])
     a = ap.parse_args()
     build(a.seed, a.out, a.style)
