@@ -49,6 +49,8 @@ def parse_topic(topic):
 
 def infer_style(topic):
     t = topic.lower()
+    if re.search(r"analog|\bebs\b|emergency broadcast|alert system|broadcast horror|signal", t):
+        return "analog"
     if re.search(r"horror|scary|ghost|haunt|creep|dark|night|curse|demon|spooky", t):
         return "horror"
     if re.search(r"news|breaking|alert|broadcast|warning|emergency|report", t):
@@ -93,8 +95,9 @@ def bump_usage(usage):
 def build_prompt(topic, style, part, prev_parts):
     rules = (
         "You write 25-second vertical video scripts for an original comedy/horror Shorts channel called Tectoji. "
-        "Return ONLY JSON with keys: title (max 70 chars), style (horror|broadcast|brainrot), "
+        "Return ONLY JSON with keys: title (max 70 chars), style (horror|broadcast|brainrot|analog), "
         "summary (one sentence of what happened), cliffhanger (one sentence, or empty if finished), "
+        "(for each scene also give icon: one of door, window, tv, bed, phone, eye, house, person, lamp), "
         "hashtags (5 items, no spaces), scenes (7 or 8 items, each {text, emojis}). "
         "Each scene text is spoken aloud: max 11 words, plain English, strong hook in scene 1, "
         "a twist near the end. Total under 70 words. emojis = 1 or 2 emojis chosen ONLY from this list: "
@@ -103,6 +106,15 @@ def build_prompt(topic, style, part, prev_parts):
         "No graphic violence, gore, hate, or real-world misinformation. Absurd and funny-creepy, not disturbing."
     )
     ctx = f"Topic: {topic}\nStyle: {style}\n"
+    if style == "analog":
+        ctx += ("ANALOG HORROR FORMAT: a deadpan fictional emergency broadcast (call it the Tectoji Alert System, "
+                "never a real agency) giving short imperative safety instructions, each one slightly more wrong "
+                "and more frightening than the last (e.g. rules about doors, lights, phones, counting people). "
+                "Max 8 words per scene, calm and formal, last scene implies the threat is now very close. "
+                "Mention things that can be shown as simple icons: door, house, tv, phone, bed, moon, eye, lamp, person.\n")
+    if style == "analog":
+        ctx += ("Write it like a creepy FICTIONAL emergency broadcast: calm imperative safety instructions "
+                "that get stranger, max 8 words per scene. Nothing harming children or animals, nothing graphic.\n")
     if part:
         ctx += f"This is PART {part} of a series. "
         if prev_parts:
@@ -134,14 +146,15 @@ def clean_plan(plan, style):
             continue
         text = " ".join(text.split()[:16])
         ems = [e for e in s.get("emojis", []) if e in SAFE_EMOJI][:2] or ["👻"]
-        scenes.append(dict(text=text, emojis=ems))
+        icon = s.get("icon") if s.get("icon") in tectoji.ICON_NAMES else None
+        scenes.append(dict(text=text, emojis=ems, icon=icon))
     if not 5 <= len(scenes) <= 9:
         return None
     tags = [re.sub(r"[^A-Za-z0-9_]", "", str(t)) for t in plan.get("hashtags", [])]
     tags = ["#" + t for t in tags if t][:6]
     if "#shorts" not in [t.lower() for t in tags]:
         tags.insert(0, "#shorts")
-    st = plan.get("style") if plan.get("style") in ("horror", "broadcast", "brainrot") else style
+    st = plan.get("style") if plan.get("style") in ("horror", "broadcast", "brainrot", "analog") else style
     return dict(title=str(plan.get("title", "")).strip()[:70] or "Tectoji Short", style=st, scenes=scenes,
                 summary=str(plan.get("summary", "")).strip()[:300],
                 cliffhanger=str(plan.get("cliffhanger", "")).strip()[:300], tags=tags)
@@ -178,7 +191,7 @@ def install_plan(plan, topic_phrase, part):
         sc = []
         for t, s in zip(texts, plan["scenes"]):
             sc.append(dict(text=t, sprites=s["emojis"], motion=rng.choice(tectoji.MOTIONS[style]),
-                           bg=rng.choice(tectoji.PAL[style])))
+                           bg=rng.choice(tectoji.PAL[style]), icon=s.get("icon")))
         for _ in range(calls["n"]):  # too long for 35s: drop the longest middle scene
             if len(sc) > 5:
                 i = max(range(1, len(sc) - 1), key=lambda k: len(sc[k]["text"]))
@@ -192,6 +205,7 @@ def install_plan(plan, topic_phrase, part):
         title = plan["title"] + (f" (Part {part})" if part and f"part {part}" not in plan["title"].lower() else "")
         desc = (scenes[0]["text"] + "\n\n" + plan.get("summary", "") +
                 "\n\nAn original story made with AI tools. Fictional." +
+                (" Not a real emergency alert." if style in ("analog", "broadcast") else "") +
                 ("\nFollow for the next part!" if plan.get("cliffhanger") else "") +
                 "\n\n" + " ".join(plan["tags"]))
         return dict(title=title[:100], description=desc, tags=[t[1:] for t in plan["tags"]], style=style,
@@ -205,7 +219,7 @@ def install_plan(plan, topic_phrase, part):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--topic", required=True)
-    ap.add_argument("--style", default="auto", choices=["auto", "brainrot", "broadcast", "horror"])
+    ap.add_argument("--style", default="auto", choices=["auto", "brainrot", "broadcast", "horror", "analog"])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="out")
     a = ap.parse_args()
