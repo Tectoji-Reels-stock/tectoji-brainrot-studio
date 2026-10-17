@@ -1,0 +1,55 @@
+name: AI Hindi story Short
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Topic (e.g. haunted haveli 3 rules story part 1)"
+        required: true
+      allow_placeholder:
+        description: "Test mode with NON-AI images/voice if AI is unavailable (yes/no)"
+        default: "no"
+permissions:
+  contents: write
+concurrency:
+  group: tectoji-state
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng fonts-noto-core fonts-freefont-ttf fonts-dejavu-core libfribidi0 libraqm0
+      - name: Install Python packages
+        run: pip install pillow numpy piper-tts
+      - name: Download Hindi AI voice (Piper)
+        run: |
+          mkdir -p models
+          B=https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/rohan/medium
+          curl -fL -o models/hi_IN-rohan-medium.onnx $B/hi_IN-rohan-medium.onnx || echo "voice download failed"
+          curl -fL -o models/hi_IN-rohan-medium.onnx.json $B/hi_IN-rohan-medium.onnx.json || echo "voice config download failed"
+      - name: Make the Short
+        env:
+          TOPIC: ${{ github.event.inputs.topic }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          ALLOW_PLACEHOLDER: ${{ github.event.inputs.allow_placeholder == 'yes' && '1' || '0' }}
+        run: python aistory.py --topic "$TOPIC" --seed ${{ github.run_number }} --out out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: short
+          path: out/
+      - name: Save state
+        run: |
+          git config user.name "tectoji-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add state
+          git diff --cached --quiet || git commit -m "state update ${{ github.run_number }}"
+          git pull --rebase || true
+          git push
