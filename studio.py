@@ -9,7 +9,7 @@ import argparse, datetime, hashlib, json, os, random, re, sys, urllib.error, url
 import tectoji
 
 STATE = "state"
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+MODELS = [m.strip() for m in os.environ.get("GEMINI_MODEL", "gemini-3.5-flash,gemini-3.1-flash-lite").split(",") if m.strip()]
 DAILY_CAP = int(os.environ.get("GEMINI_DAILY_MAX", "15"))
 SAFE_EMOJI = list("👻💀🦇🌙🌝🔦🚪🧟🧛🐺🐱🐶🐸🐍🦉🌵🍌🍞🧦🧀🍝🥒🥔🍩🥄🧮🔑🚀🥪🎈🧲⏰🍕🍔🤡👽🤖🧠👀🦷🔥💥⭐🌍🏫🏠🚗🚌📱💻📺📞🎃😱😈🤯")
 KEYWORD_EMOJI = {"school": "🏫", "house": "🏠", "ghost": "👻", "night": "🌙", "moon": "🌝", "door": "🚪",
@@ -126,16 +126,26 @@ def build_prompt(topic, style, part, prev_parts):
 
 
 def gemini(prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
     body = json.dumps({"contents": [{"parts": [{"text": prompt}]}],
                        "generationConfig": {"responseMimeType": "application/json", "temperature": 1.0}}).encode()
-    req = urllib.request.Request(url, body, {"Content-Type": "application/json",
-                                             "x-goog-api-key": os.environ["GEMINI_API_KEY"]})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        data = json.load(r)
-    txt = data["candidates"][0]["content"]["parts"][0]["text"]
-    txt = re.sub(r"^```(?:json)?|```$", "", txt.strip(), flags=re.M).strip()
-    return json.loads(txt)
+    last = None
+    for model in MODELS:  # models get retired: if one is gone (404) or out of quota (429), try the next
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        req = urllib.request.Request(url, body, {"Content-Type": "application/json",
+                                                 "x-goog-api-key": os.environ["GEMINI_API_KEY"]})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                data = json.load(r)
+        except urllib.error.HTTPError as e:
+            print(f"Gemini model {model}: HTTP {e.code}")
+            last = e
+            if e.code in (404, 429):
+                continue
+            raise
+        txt = data["candidates"][0]["content"]["parts"][0]["text"]
+        txt = re.sub(r"^```(?:json)?|```$", "", txt.strip(), flags=re.M).strip()
+        return json.loads(txt)
+    raise last
 
 
 def clean_plan(plan, style):
