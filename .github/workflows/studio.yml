@@ -6,7 +6,7 @@ on:
         description: "Topic (e.g. haunted school horror story part 1)"
         required: true
       style:
-        description: "auto, horror, broadcast or brainrot"
+        description: "auto, analog, horror, broadcast or brainrot"
         default: "auto"
 permissions:
   contents: write
